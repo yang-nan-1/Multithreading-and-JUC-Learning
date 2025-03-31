@@ -1,0 +1,131 @@
+private boolean addWorker(Runnable firstTask, boolean core) {
+    retry:
+	// 外层for循环
+    for (;;) {
+		// 获取线程池控制变量的值
+        int c = ctl.get();
+        // 获取线程池运行状态
+        int rs = runStateOf(c);
+        
+        // if判断，如果rs >= SHUTDOWN 并且 (判断3个条件，只要有1个不满足)，返回false；
+        // Check if queue empty only if necessary.
+        if (rs >= SHUTDOWN &&
+            ! (rs == SHUTDOWN &&
+               firstTask == null &&
+               ! workQueue.isEmpty()))
+            return false;
+			
+		// 内层for循环
+        for (;;) {
+            // 获取线程池线程数
+            int wc = workerCountOf(c);
+            // 如果wc超过CAPACITY，也就是ctl的低29位的最大值（二进制是29个1），返回false；
+            // core为addWorker方法的第二个参数，若为true根据corePoolSize比较，若为false根据maximumPoolSize比较；
+            if (wc >= CAPACITY ||
+                wc >= (core ? corePoolSize : maximumPoolSize))
+                return false;
+            // 尝试增加workerCount，如果成功，则跳出外层for循环
+            if (compareAndIncrementWorkerCount(c))
+                break retry;
+            // 如果增加workerCount失败，则重新获取控制变量ctl的值
+            c = ctl.get();  // Re-read ctl
+            // 如果当前线程池的运行状态不等于rs，说明线程池运行状态已被改变，返回外层for循环继续执行
+            if (runStateOf(c) != rs)
+                continue retry;
+            // else CAS failed due to workerCount change; retry inner loop
+        }
+    }
+	
+	
+	// Worker线程是否启动
+    boolean workerStarted = false;
+	// Worker线程是否添加
+    boolean workerAdded = false;
+	// 是一个线程类，该类实现了Runnable接口的
+    Worker w = null;
+	
+    try {
+        // 根据firstTask来创建Worker对象
+        w = new Worker(firstTask);
+		
+        // 每一个Worker对象都会创建一个线程
+        final Thread t = w.thread;  // Thread t = new Thread(worker);
+        if (t != null) {
+			// 创建一个lock锁
+            final ReentrantLock mainLock = this.mainLock;
+			// 上锁
+            mainLock.lock();
+            try {
+				// 检查线程池运行状态
+                // Recheck while holding lock.
+                // Back out on ThreadFactory failure or if
+                // shut down before lock acquired.
+                int rs = runStateOf(ctl.get());
+                // rs < SHUTDOWN表示是RUNNING状态；
+                // 如果rs是RUNNING状态或者rs是SHUTDOWN状态并且firstTask为null，向线程池中添加线程。
+                // 因为在SHUTDOWN时不会在添加新的任务，但还是会执行workQueue中的任务
+                if (rs < SHUTDOWN ||
+                    (rs == SHUTDOWN && firstTask == null)) {
+					// 检查线程已经是运行状态，抛出非法线程状态异常
+                    if (t.isAlive()) // precheck that t is startable
+                        throw new IllegalThreadStateException();
+                    // workers是一个HashSet
+                    workers.add(w);
+                    int s = workers.size();
+                    // largestPoolSize记录着线程池中出现过的最大线程数量
+                    if (s > largestPoolSize)
+						// 把历史上出现过的最大线程数的值更新一下
+                        largestPoolSize = s;
+					// Worker线程添加成功
+                    workerAdded = true;
+                }
+            } finally {
+				// 释放ReentrantLock锁
+                mainLock.unlock();
+            }
+            if (workerAdded) {
+                // 启动线程
+                t.start(); //因为这个t线程里面包装一个worker对象，所以启动后就会执行worker的run()方法
+				// Worker线程已经启动
+                workerStarted = true;
+            }
+        }
+    } finally {
+		// Worker线程没有启动成功
+        if (! workerStarted)
+            addWorkerFailed(w);
+    }
+	// 返回Worker线程是否启动成功
+    return workerStarted;
+}
+
+
+
+//Worker类
+private final class Worker
+        extends AbstractQueuedSynchronizer
+        implements Runnable {
+
+	/** Thread this worker is running in.  Null if factory fails. */
+	final Thread thread;
+	
+	/** Initial task to run.  Possibly null. */
+	Runnable firstTask;
+	
+
+	Worker(Runnable firstTask) {
+		setState(-1); // inhibit interrupts until runWorker
+		this.firstTask = firstTask;
+		this.thread = getThreadFactory().newThread(this);
+		
+		//Thread t = new Thread(worker);
+		//t.start(); ==> worker.run()
+	}
+
+	@Override
+	public void run() {
+		runWorker(this);
+	}
+	
+	//.........................	省略
+}

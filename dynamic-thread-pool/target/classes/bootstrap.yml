@@ -1,0 +1,15 @@
+spring:
+  application:
+    name:
+      dynamic-thread-pool
+  cloud:
+    nacos:
+      discovery:
+        server-addr: localhost:8848
+#        ephemeral: false  #配置持久化
+      config:
+        server-addr: localhost:8848
+        name: dynamic-thread-pool
+        file-extension: yaml
+#        username: nacos
+#        password: nacos

@@ -1,0 +1,66 @@
+/*
+ * 任务提交执行，在未来的某个时间执行给定的任务，任务可以在新线程或现有池线程中执行；
+ * 如果任务无法提交执行，要么因为此执行器已关闭或因为其容量已达到，则该任务由当前RejectedExecutionHandler处理；
+ */
+public void execute(Runnable command) {
+    //如果command是null，则抛出空指针异常；
+    if (command == null)
+        throw new NullPointerException();
+
+    //获取clt控制变量的值，clt控制变量记录着runState和workerCount的值；
+    int c = ctl.get();
+    /*
+     * workerCountOf方法获取控制变量ctl低29位的值，表示当前活动的线程数；
+     * 如果当前活动线程数小于核心线程数corePoolSize，则新建一个线程放入线程池中，并把任务添加到该线程中运行；
+     */
+    if (workerCountOf(c) < corePoolSize) {
+        /*
+         * addWorker()方法：
+         * 第一个参数是要提交的工作任务；
+         * 第二个参数：
+         * 如果是true，根据corePoolSize来判断，表示添加核心线程；（保持稳定的线程数来处理任务）
+         * 如果是false，根据maximumPoolSize来判断，表示添加非核心线程；（应对突发的任务处理）
+         */
+        if (addWorker(command, true)) //addWorker()方法会检查运行状态和工作线程数，如果返回false则说明线程没有创建成功；
+            //添加成功则返回;
+            return;
+
+        //如果添加失败，则重新获取控制变量ctl的值;
+        c = ctl.get();
+    }
+
+
+    //到这里了，说明workerCountOf(c) >= corePoolSize，并且如果当前线程池是运行状态并且工作任务添加到任务队列成功
+    if (isRunning(c) && workQueue.offer(command)) {
+        // 重新获取ctl值
+        int recheck = ctl.get();
+        // 再次判断线程池是否是运行状态，如果不是运行状态，由于之前已经把command添加到workQueue中了，此时需要移除该command；
+        if (! isRunning(recheck) && remove(command))
+            //线程池不是运行状态并且移除该command成功，则使用拒绝策略对该任务进行处理；
+            reject(command);
+        /*
+         * 线程池是运行状态，获取一下线程池中的有效线程数，如果是0，则执行addWorker()方法创建一个线程；
+         * addWorker()方法：
+         * 第一个参数为null，表示在线程池中创建一个线程，但不启动；
+         * 第二个参数为false，表示是非核心线程；
+         *
+         * 接下来这里没有写else，表示如果判断workerCount大于0，则不需要做什么处理，直接返回，
+         * 加入到workQueue中的command会在将来的某个时刻被执行；
+         */
+        else if (workerCountOf(recheck) == 0)
+            //此处是创建一个线程，但并没有传入任务，因为任务已经被添加到workQueue中了，到时候线程会从从workQueue中获取任务来执行;
+            //所以当workerCountOf(recheck) == 0时执行addWorker(null, false);
+            //是为了保证线程池在RUNNING状态下必须要有一个线程来执行任务;
+            addWorker(null, false);
+    }
+
+
+    /*
+     * 如果执行到这里，有两种情况：
+     * 1. 线程池已经不是RUNNING状态；
+     * 2. 线程池是RUNNING状态，但往workQueue已经放不进去，即workerCount >= corePoolSize，并且workQueue已满；
+     * 此时再次调用addWorker()方法，第二个参数为false，表示非核心线程，如果失败则拒绝该任务；
+     */
+    else if (!addWorker(command, false))
+        reject(command);
+}

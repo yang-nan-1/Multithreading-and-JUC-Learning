@@ -1,0 +1,65 @@
+
+private Runnable getTask() {
+
+    // 表示上一次从任务队列中取任务时是否超时
+    boolean timedOut = false; // Did the last poll() time out?
+    for (;;) {
+        int c = ctl.get();
+        int rs = runStateOf(c);
+		
+        // Check if queue empty only if necessary.
+        /*
+         如果线程池为`SHUTDOWN`状态且任务队列为空（线程池shutdown状态可以处理任务队列中的任务，不再接受新任务）
+         或者
+         线程池状态>=STOP，则意味着线程池不必再获取任务了，
+		 将当前工作线程数量-1并返回null；
+        */
+        if (rs >= SHUTDOWN && (rs >= STOP || workQueue.isEmpty())) {
+            decrementWorkerCount();
+            return null;
+        }
+		
+        //线程池的线程个数
+        int wc = workerCountOf(c);
+        // Are workers subject to culling?
+        /*
+         timed变量用于判断是否需要进行超时控制；
+         allowCoreThreadTimeOut默认是false，也就是核心线程不允许进行超时；
+         wc > corePoolSize，表示当前线程池中的线程数量大于核心线程数量；
+         表示对于超过核心线程数量的这些线程，需要进行超时控制（默认情况）
+        */
+        boolean timed = allowCoreThreadTimeOut || wc > corePoolSize;
+
+        /*
+         * 两个条件全部为true，则通过CAS使工作线程数-1，即去除工作线程：
+         * 条件1：工作线程数大于maximumPoolSize，或（工作线程需要超时控制且上次在任务队列拉取任务超时）
+         * 条件2：wc > 1或任务队列为空
+         * 如果减1失败，则返回重试；
+         */
+        if ((wc > maximumPoolSize || (timed && timedOut)) && (wc > 1 || workQueue.isEmpty())) {
+            if (compareAndDecrementWorkerCount(c))
+                return null;
+            continue;
+        }
+		
+        try {
+            /*
+             * 执行到这里，说明已经经过前面的校验，开始真正获取task；
+             * 根据timed来判断，如果工作线程有超时时间，则通过任务队列的poll方法进行超时等待方式获取任务，
+             * 如果在keepAliveTime时间内没有获取到任务，则返回null，否则通过take方法；
+             * take方法表示如果这时任务队列为空，则会阻塞直到任务队列不为空；
+             * 一般poll()用于普通线程、take()用于核心线程
+             */
+            Runnable r = timed ? workQueue.poll(keepAliveTime, TimeUnit.NANOSECONDS) : workQueue.take();
+			
+			// r不为空，则返回该Runnable
+            if (r != null)   
+				return r;
+            // 如果 r == null，说明已经超时得不到任务，timedOut设置为true
+            timedOut = true;
+        } catch (InterruptedException retry) {
+            // 如果获取任务时当前线程发生了中断，则设置timedOut为false并返回循环重试
+            timedOut = false;
+        }
+    }
+}

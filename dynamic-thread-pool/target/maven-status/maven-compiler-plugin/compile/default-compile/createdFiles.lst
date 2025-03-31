@@ -1,0 +1,4 @@
+com\redis\dynamicthreadpool\properties\ThreadPoolProperties.class
+META-INF\spring-configuration-metadata.json
+com\redis\dynamicthreadpool\Application.class
+com\redis\dynamicthreadpool\config\ThreadPoolConfig.class
